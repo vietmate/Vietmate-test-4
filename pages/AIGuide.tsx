@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Navbar } from '../components/Navbar';
+import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
 
 export default function AIGuide() {
     const [messages, setMessages] = useState([
@@ -7,15 +8,68 @@ export default function AIGuide() {
         { type: 'bot', text: "What are you looking for today? We've hand-picked some categories for you to start exploring." },
     ]);
     const [inputValue, setInputValue] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
+    const chatRef = useRef<Chat | null>(null);
 
-    const handleSend = () => {
-        if (!inputValue.trim()) return;
-        setMessages([...messages, { type: 'user', text: inputValue }]);
+    useEffect(() => {
+        // Initialize the Gemini chat client
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        chatRef.current = ai.chats.create({
+            model: 'gemini-3-flash-preview',
+            config: {
+                systemInstruction: "You are a friendly and knowledgeable local travel guide for Vietnam called Vietmate. You help users plan trips, find tours, and discover local food. You are enthusiastic, polite, and love using emojis to make the conversation engaging.",
+            },
+        });
+    }, []);
+
+    const handleSend = async () => {
+        if (!inputValue.trim() || isLoading) return;
+        
+        const userText = inputValue;
         setInputValue("");
-        // Simulate response
-        setTimeout(() => {
-             setMessages(prev => [...prev, { type: 'bot', text: "I'm processing your request to find the best local gems for you..." }]);
-        }, 1000);
+        setMessages(prev => [...prev, { type: 'user', text: userText }]);
+        setIsLoading(true);
+
+        try {
+            // Ensure chat is initialized
+            if (!chatRef.current) {
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                chatRef.current = ai.chats.create({
+                    model: 'gemini-3-flash-preview',
+                    config: {
+                        systemInstruction: "You are a friendly and knowledgeable local travel guide for Vietnam called Vietmate. You help users plan trips, find tours, and discover local food. You are enthusiastic, polite, and love using emojis to make the conversation engaging.",
+                    },
+                });
+            }
+
+            // Send message and handle streaming response
+            const responseStream = await chatRef.current.sendMessageStream({ message: userText });
+            
+            // Add placeholder for bot response
+            setMessages(prev => [...prev, { type: 'bot', text: "" }]);
+
+            let fullText = "";
+            for await (const chunk of responseStream) {
+                const c = chunk as GenerateContentResponse;
+                const text = c.text;
+                if (text) {
+                    fullText += text;
+                    setMessages(prev => {
+                        const newMessages = [...prev];
+                        const lastMessage = newMessages[newMessages.length - 1];
+                        if (lastMessage.type === 'bot') {
+                            lastMessage.text = fullText;
+                        }
+                        return newMessages;
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("AI Chat Error:", error);
+            setMessages(prev => [...prev, { type: 'bot', text: "Sorry, I'm having trouble connecting to the spirits of Vietnam right now. Please try again later." }]);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
   return (
@@ -57,7 +111,7 @@ export default function AIGuide() {
                                 </div>
                             )}
                             <div className={`p-5 rounded-2xl shadow-xl max-w-[85%] ${msg.type === 'bot' ? 'bg-white dark:bg-slate-900 rounded-tl-none border border-slate-100 dark:border-slate-800' : 'bg-primary text-white rounded-tr-none'}`}>
-                                <p className="text-lg font-medium leading-relaxed">{msg.text}</p>
+                                <p className="text-lg font-medium leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                             </div>
                         </div>
                     ))}
@@ -86,12 +140,23 @@ export default function AIGuide() {
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            disabled={isLoading}
                         />
                     </div>
                      <div className="flex gap-2">
-                        <button className="h-14 px-8 bg-primary text-white rounded-full flex items-center justify-center gap-2 hover:bg-red-700 transition-all font-black shadow-lg shadow-primary/20" onClick={handleSend}>
-                            <span>Send</span>
-                            <span className="material-symbols-outlined !text-lg">send</span>
+                        <button 
+                            className={`h-14 px-8 bg-primary text-white rounded-full flex items-center justify-center gap-2 hover:bg-red-700 transition-all font-black shadow-lg shadow-primary/20 ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`} 
+                            onClick={handleSend}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? (
+                                <span className="material-symbols-outlined animate-spin">refresh</span>
+                            ) : (
+                                <>
+                                    <span>Send</span>
+                                    <span className="material-symbols-outlined !text-lg">send</span>
+                                </>
+                            )}
                         </button>
                     </div>
                 </div>
