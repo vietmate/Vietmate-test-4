@@ -41,9 +41,9 @@ declare module '*.bmp' {
 }
 
 // Ensure process.env.API_KEY is recognized as per coding guidelines
-declare var process: {
-  env: {
+declare namespace NodeJS {
+  interface ProcessEnv {
     API_KEY: string;
     [key: string]: string | undefined;
   }
-};
+}
